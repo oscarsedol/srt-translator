@@ -194,6 +194,45 @@ is_locked = st.session_state.is_processing
 # 1. 파일 업로드란
 uploaded_file = st.file_uploader("원본 SRT 파일을 올려줘, 주인. / 元のSRTファイルをアップロードしてください。", type=['srt'], disabled=is_locked)
 
+# 💡 [신규 기능] 업로드 즉시 파일 검증 및 파싱 로직
+original_srt = None
+original_content = ""
+
+if uploaded_file:
+    raw_bytes = uploaded_file.getvalue()
+    # 3중 인코딩 방어막
+    try:
+        original_content = raw_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            original_content = raw_bytes.decode("cp949")
+        except UnicodeDecodeError:
+            original_content = raw_bytes.decode("shift_jis")
+            
+    try:
+        original_srt = pysrt.from_string(original_content)
+        
+        if len(original_srt) == 0:
+            st.error("🚨 자막이 비어있거나 올바른 SRT 형식이 아닙니다. / 字幕が空であるか、正しいSRT形式ではありません。")
+            original_srt = None
+        else:
+            # 타임라인 논리 검증 (역전 현상 확인)
+            timeline_errors = 0
+            for i in range(len(original_srt)):
+                if original_srt[i].start >= original_srt[i].end:
+                    timeline_errors += 1
+                if i > 0 and original_srt[i].start < original_srt[i-1].start:
+                    timeline_errors += 1
+            
+            if timeline_errors > 0:
+                st.warning(f"⚠️ 원본 자막의 타임라인에 이상한 부분(시간 역전 등)이 {timeline_errors}곳 발견됐어. 번역은 진행되지만 결과물을 확인해줘. / 元の字幕のタイムラインに異常が{timeline_errors}箇所見つかりました。")
+            else:
+                st.success(f"✅ 검증 완료! 타임라인에 문제가 없으며, 총 **{len(original_srt)}**줄의 자막이 확인됐어. / 検証完了！タイムラインに問題はなく、計 **{len(original_srt)}** 行の字幕が確認されました。")
+                
+    except Exception as e:
+        st.error(f"🚨 SRT 파일을 파싱하는 중 오류가 발생했어 / SRTファイルのパース中にエラーが発生しました: {e}")
+        original_srt = None
+
 # 2. 영상 제목 입력란
 video_title = st.text_input("영상 제목을 입력해줘. (파일명에 사용됨) / 動画のタイトルを入力してください。(ファイル名に使用)", value=st.session_state.video_title, disabled=is_locked)
 st.session_state.video_title = video_title
@@ -219,6 +258,8 @@ if not st.session_state.is_processing:
     if st.button("✨ 번역 시작 / 翻訳開始", type="primary", use_container_width=True):
         if not uploaded_file:
             st.warning("먼저 원본 SRT 파일을 업로드해 줘. / まず元のSRTファイルをアップロードしてください。")
+        elif not original_srt:
+            st.error("자막 파일에 오류가 있어 번역을 시작할 수 없어. / 字幕ファイルにエラーがあり、翻訳を開始できません。")
         elif not video_title.strip():
             st.warning("영상 제목을 입력해 줘, 주인. / 動画のタイトルを入力してください。")
         elif not selected_langs:
@@ -235,25 +276,7 @@ else:
         st.rerun()
 
 # --- 실제 번역 처리 루프 / 翻訳処理ループ ---
-if st.session_state.is_processing and uploaded_file and video_title.strip():
-    
-    # 💡 3중 인코딩 방어막 적용 (UTF-8 -> CP949 -> Shift-JIS)
-    raw_bytes = uploaded_file.getvalue()
-    try:
-        original_content = raw_bytes.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        try:
-            original_content = raw_bytes.decode("cp949")
-        except UnicodeDecodeError:
-            original_content = raw_bytes.decode("shift_jis")
-            
-    try:
-        original_srt = pysrt.from_string(original_content)
-    except Exception as e:
-        st.error(f"SRT 파일을 파싱하는 중 오류가 발생했어 / SRTファイルのパース中にエラーが発生しました: {e}")
-        st.session_state.is_processing = False
-        st.stop()
-
+if st.session_state.is_processing and uploaded_file and original_srt and video_title.strip():
     total_langs = len(selected_langs)
     st.subheader("📊 실시간 진행 상황 / リアルタイム進行状況")
     
