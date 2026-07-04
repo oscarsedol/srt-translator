@@ -8,38 +8,78 @@ import zipfile
 import io
 from dotenv import load_dotenv
 
-# --- 환경변수 및 API 설정 / 환경変数 및 API 設定 ---
+# --- 환경변수 및 API 설정 / 環境変数 및 API 設定 ---
 load_dotenv()
-api_key = os.getenv("GEMINI_API_KEY")
+
+# 🔒 [보안 기능] Secrets에서 아이디/비밀번호 가져오기
+VALID_USERNAME = st.secrets.get("APP_USERNAME", os.getenv("APP_USERNAME", "owner"))
+VALID_PASSWORD = st.secrets.get("APP_PASSWORD", os.getenv("APP_PASSWORD", "password123"))
+
+# --- 로그인 UI 처리 / ログインUI処理 ---
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.set_page_config(page_title="🔒 로그인 / ログイン", page_icon="🔐", layout="centered")
+    st.title("🔐 시스템 접근 제한 / アクセス制限")
+    st.subheader("이 앱은 허가된 사용자만 사용할 수 있습니다.")
+    st.write("このアプリは許可されたユーザーのみ使用できます。")
+    
+    login_user = st.text_input("Username / ID", key="login_user")
+    login_pass = st.text_input("Password / パスワード", type="password", key="login_pass")
+    
+    if st.button("🔑 로그인 / ログイン", type="primary", use_container_width=True):
+        if login_user == VALID_USERNAME and login_pass == VALID_PASSWORD:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("아이디 또는 비밀번호가 틀렸습니다. / IDまたはパスワードが間違っています。")
+    st.stop()  # 로그인 성공 전까지는 아래 코드를 절대 실행하지 않고 멈춤
+
+# --- 로그인 성공 시 아래의 본 프로그램 실행 ---
+
+api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
 else:
-    st.error("앗, .env 파일에 GEMINI_API_KEY가 없어. 확인해줘, 주인. / .envファイルにGEMINI_API_KEYがありません。")
+    st.error("앗, .env 파일이나 Secrets에 GEMINI_API_KEY가 없어. 확인해줘, 주인.")
 
-# 주인의 요청대로 3.1 플래시 라이트로 고정하여 가성비 극대화!
+# 3.1 플래시 라이트로 고정하여 가성비 극대화!
 MODEL_NAME = 'gemini-3.1-flash-lite'
 
-# --- 번역 가능 언어 목록 / 翻訳可能言語リスト ---
+# --- 번역 가능 언어 목록 (확장판) / 翻訳可能言語リスト ---
 LANGUAGES = {
     "한국어 / 韓国語": "Korean", 
     "일본어 / 日本語": "Japanese", 
     "영어 / 英語": "English",
     "인도네시아어 / インドネシア語": "Indonesian", 
-    "대만어 / 台湾語": "Traditional Chinese (Taiwan)",
+    "대만어(번체) / 台湾語(繁体字)": "Traditional Chinese (Taiwan)",
+    "중국어(간체) / 中国語(簡体字)": "Simplified Chinese",
     "베트남어 / ベトナム語": "Vietnamese", 
     "태국어 / タイ語": "Thai", 
     "말레이시아어 / マレーシア語": "Malay",
     "러시아어 / ロシア語": "Russian", 
     "타갈로그어 / タガログ語": "Tagalog",
     "스페인어 / スペイン語": "Spanish", 
-    "포르투갈어 / ポルトガル語": "Portuguese"
+    "포르투갈어 / ポルトガル語": "Portuguese",
+    "프랑스어 / フランス語": "French",
+    "독일어 / ドイツ語": "German",
+    "이탈리아어 / イタリア語": "Italian",
+    "우즈베크어 / ウズベク語": "Uzbek",
+    "카자흐어 / カザフ語": "Kazakh",
+    "튀르키예어 / トルコ語": "Turkish",
+    "힌디어 / ヒンディー語": "Hindi",
+    "아랍어 / アラビア語": "Arabic",
+    "스웨덴어 / スウェーデン語": "Swedish",
+    "노르웨이어 / ノルウェー語": "Norwegian",
+    "덴마크어 / デンマーク語": "Danish",
+    "핀란드어 / フィンランド語": "Finnish"
 }
 
 # --- 스트림릿 세션 상태 초기화 / セッション状態の初期化 ---
 for lang in LANGUAGES.keys():
     key = f"chk_{lang}"
     if key not in st.session_state:
-        # 기본적으로 일본어 제외하고 선택 / 基本的に日本語を除外して選択
         st.session_state[key] = ("일본어 / 日本語" not in lang)
 
 if 'is_processing' not in st.session_state:
@@ -58,11 +98,6 @@ def deselect_all():
     for lang in LANGUAGES.keys():
         st.session_state[f"chk_{lang}"] = False
 
-def shutdown_server():
-    st.warning("시스템을 종료합니다. 브라우저 탭을 닫아주세요. / システムを終了します。ブラウザのタブを閉じてください。")
-    time.sleep(1)
-    os._exit(0)
-
 def verify_timeline_final(original_srt, translated_srt_text):
     try:
         translated_srt = pysrt.from_string(translated_srt_text)
@@ -77,7 +112,6 @@ def verify_timeline_final(original_srt, translated_srt_text):
 
 # --- 번역 및 타임라인 강제 동기화 / 翻訳およびタイムライン同期 ---
 def translate_and_verify(original_text, original_srt, target_lang, progress_bar, status_text):
-    # 2.0 Flash 모델 로드
     model = genai.GenerativeModel(MODEL_NAME)
     
     prompt_base = f"""
@@ -91,7 +125,6 @@ def translate_and_verify(original_text, original_srt, target_lang, progress_bar,
     {original_text}
     """
     
-    # 최대 재시도를 3회로 단축
     attempt = 1
     while attempt <= 3:
         if not st.session_state.is_processing:
@@ -152,14 +185,8 @@ def translate_and_verify(original_text, original_srt, target_lang, progress_bar,
 # --- UI 레이아웃 구성 / UIレイアウト構成 ---
 st.set_page_config(page_title="SRT 다국어 번역기 / SRT多言語翻訳機", page_icon="🌐", layout="centered")
 
-col1, col2 = st.columns([7, 3])
-with col1:
-    st.title("글로벌 자막 번역기 🚀")
-    st.subheader("グローバル字幕翻訳機")
-with col2:
-    if st.button("🛑 시스템 종료 / システム終了", key="shutdown_top", use_container_width=True):
-        shutdown_server()
-
+st.title("글로벌 자막 번역기 🚀")
+st.subheader("グローバル字幕翻訳機")
 st.markdown("---")
 
 is_locked = st.session_state.is_processing
@@ -278,7 +305,7 @@ if st.session_state.results and not st.session_state.is_processing:
         
         st.download_button(
             label=f"📥 {file_name} 다운로드 / ダウンロード",
-            data=srt_content.encode("utf-8-sig"), # 💡 단일 다운로드 파일 인코딩 적용
+            data=srt_content.encode("utf-8-sig"), 
             file_name=file_name,
             mime="text/plain",
             type="primary",
@@ -289,7 +316,6 @@ if st.session_state.results and not st.session_state.is_processing:
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
             for lang_name, srt_content in results.items():
                 file_name = f"{title}_{lang_name}.srt"
-                # 💡 ZIP 파일 내부 인코딩 적용
                 zip_file.writestr(file_name, srt_content.encode("utf-8-sig"))
         
         zip_buffer.seek(0)
@@ -305,7 +331,3 @@ if st.session_state.results and not st.session_state.is_processing:
         )
 
     st.balloons()
-
-st.markdown("---")
-if st.button("🛑 모든 작업 완료 및 시스템 종료 / すべての作業を完了してシステム終了", key="shutdown_bottom", type="secondary", use_container_width=True):
-    shutdown_server()
