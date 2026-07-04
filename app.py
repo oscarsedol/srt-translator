@@ -47,39 +47,45 @@ else:
 # 3.1 플래시 라이트로 고정하여 가성비 극대화!
 MODEL_NAME = 'gemini-3.1-flash-lite'
 
-# --- 번역 가능 언어 목록 (확장판) / 翻訳可能言語リスト ---
+# --- 번역 가능 언어 목록 (30개국 확장판) / 翻訳可能言語リスト ---
 LANGUAGES = {
-    "한국어 / 韓国語": "Korean", 
-    "일본어 / 日本語": "Japanese", 
+    "한국어 / 韓国語": "Korean",
     "영어 / 英語": "English",
-    "인도네시아어 / インドネシア語": "Indonesian", 
-    "대만어(번체) / 台湾語(繁体字)": "Traditional Chinese (Taiwan)",
+    "일본어 / 日本語": "Japanese",
     "중국어(간체) / 中国語(簡体字)": "Simplified Chinese",
-    "베트남어 / ベトナム語": "Vietnamese", 
-    "태국어 / タイ語": "Thai", 
-    "말레이시아어 / マレーシア語": "Malay",
-    "러시아어 / ロシア語": "Russian", 
-    "타갈로그어 / タガログ語": "Tagalog",
-    "스페인어 / スペイン語": "Spanish", 
-    "포르투갈어 / ポルトガル語": "Portuguese",
+    "중국어(대만) / 中国語(台湾)": "Traditional Chinese (Taiwan)",
+    "중국어(홍콩) / 中国語(香港)": "Traditional Chinese (Hong Kong)",
+    "스페인어 / スペイン語": "Spanish",
     "프랑스어 / フランス語": "French",
     "독일어 / ドイツ語": "German",
     "이탈리아어 / イタリア語": "Italian",
+    "포르투갈어 / ポルトガル語": "Portuguese",
+    "러시아어 / ロシア語": "Russian",
+    "아랍어 / アラビア語": "Arabic",
+    "힌디어 / ヒンディー語": "Hindi",
+    "네덜란드어 / オランダ語": "Dutch",
+    "덴마크어 / デンマーク語": "Danish",
+    "노르웨이어 / ノルウェー語": "Norwegian",
+    "스웨덴어 / スウェーデン語": "Swedish",
+    "핀란드어 / フィンランド語": "Finnish",
+    "폴란드어 / ポーランド語": "Polish",
+    "우크라이나어 / ウクライナ語": "Ukrainian",
+    "튀르키예어 / トルコ語": "Turkish",
+    "페르시아어 / ペルシア語": "Persian",
     "우즈베크어 / ウズベク語": "Uzbek",
     "카자흐어 / カザフ語": "Kazakh",
-    "튀르키예어 / トルコ語": "Turkish",
-    "힌디어 / ヒンディー語": "Hindi",
-    "아랍어 / アラビア語": "Arabic",
-    "스웨덴어 / スウェーデン語": "Swedish",
-    "노르웨이어 / ノルウェー語": "Norwegian",
-    "덴마크어 / デンマーク語": "Danish",
-    "핀란드어 / フィンランド語": "Finnish"
+    "인도네시아어 / インドネシア語": "Indonesian",
+    "말레이어 / マレー語": "Malay",
+    "베트남어 / ベトナム語": "Vietnamese",
+    "태국어 / タイ語": "Thai",
+    "필리핀어 / フィリピン語": "Filipino"
 }
 
 # --- 스트림릿 세션 상태 초기화 / セッション状態の初期化 ---
 for lang in LANGUAGES.keys():
     key = f"chk_{lang}"
     if key not in st.session_state:
+        # 주인의 요청: 일본어만 빼고 디폴트로 선택되어 있게!
         st.session_state[key] = ("일본어 / 日本語" not in lang)
 
 if 'is_processing' not in st.session_state:
@@ -194,7 +200,7 @@ is_locked = st.session_state.is_processing
 # 1. 파일 업로드란
 uploaded_file = st.file_uploader("원본 SRT 파일을 올려줘, 주인. / 元のSRTファイルをアップロードしてください。", type=['srt'], disabled=is_locked)
 
-# 💡 [신규 기능] 업로드 즉시 파일 검증 및 파싱 로직
+# 💡 업로드 즉시 파일 검증 및 파싱 로직
 original_srt = None
 original_content = ""
 
