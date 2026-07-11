@@ -21,19 +21,22 @@ if "authenticated" not in st.session_state:
 
 if not st.session_state.authenticated:
     st.set_page_config(page_title="🔒 로그인 / ログイン", page_icon="🔐", layout="centered")
-    st.title("🔐 시스템 접근 제한 / アクセス制限")
+    st.title("🔐 시스템 접근 제한 / アクセ스制限")
     st.subheader("이 앱은 허가된 사용자만 사용할 수 있습니다.")
     st.write("このアプリは許可されたユーザーのみ使用できます。")
     
-    login_user = st.text_input("Username / ID", key="login_user")
-    login_pass = st.text_input("Password / パスワード", type="password", key="login_pass")
-    
-    if st.button("🔑 로그인 / ログイン", type="primary", use_container_width=True):
-        if login_user == VALID_USERNAME and login_pass == VALID_PASSWORD:
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("아이디 또는 비밀번호가 틀렸습니다. / IDまたはパスワードが間違っています。")
+    # 💡 1번 수정: 브라우저 자동완성(오토필) 지원을 위해 st.form 사용
+    with st.form("login_form", clear_on_submit=False):
+        login_user = st.text_input("Username / ID", key="login_user")
+        login_pass = st.text_input("Password / パスワード", type="password", key="login_pass")
+        submit_login = st.form_submit_with_button("🔑 로그인 / ログイン", type="primary", use_container_width=True)
+        
+        if submit_login:
+            if login_user == VALID_USERNAME and login_pass == VALID_PASSWORD:
+                st.session_state.authenticated = True
+                st.author_rerun()  # 로그인 성공 시 즉시 리런
+            else:
+                st.error("아이디 또는 비밀번호가 틀렸습니다. / IDまたはパスワードが間違っています。")
     st.stop()  # 로그인 성공 전까지는 아래 코드를 절대 실행하지 않고 멈춤
 
 # --- 로그인 성공 시 아래의 본 프로그램 실행 ---
@@ -44,9 +47,6 @@ if api_key:
 else:
     st.error("앗, .env 파일이나 Secrets에 GEMINI_API_KEY가 없어. 확인해줘, 주인.")
 
-# 3.1 플래시 라이트로 고정하여 가성비 극대화!
-MODEL_NAME = 'gemini-3.1-flash-lite'
-
 # --- 번역 가능 언어 목록 (30개 언어 가나다순 정렬) / 翻訳可能言語リスト ---
 LANGUAGES = {
     "네덜란드어 / オランダ語": "Dutch",
@@ -56,12 +56,12 @@ LANGUAGES = {
     "러시아어 / ロシア語": "Russian",
     "말레이어 / マレー語": "Malay",
     "베트남어 / ベトナム語": "Vietnamese",
-    "스웨덴어 / スウェーデン語": "Swedish",
+    "스웨덴어 / スウェー덴語": "Swedish",
     "스페인어 / スペイン語": "Spanish",
     "아랍어 / アラビア語": "Arabic",
     "영어 / 英語": "English",
     "우즈베크어 / ウズベク語": "Uzbek",
-    "우크라이나어 / ウクライナ語": "Ukrainian",
+    "우크라이나어 / ウ크라이나語": "Ukrainian",
     "이탈리아어 / イタリア語": "Italian",
     "인도네시아어 / インドネシア語": "Indonesian",
     "일본어 / 日本語": "Japanese",
@@ -81,12 +81,12 @@ LANGUAGES = {
     "힌디어 / ヒンディー語": "Hindi"
 }
 
-# --- 스트림릿 세션 상태 초기화 / セッション状態の初期化 ---
+# --- 스트림릿 세션 상태 초기화 / セッション状態の初期화 ---
 for lang in LANGUAGES.keys():
     key = f"chk_{lang}"
     if key not in st.session_state:
-        # 일본어만 기본으로 체크 해제
-        st.session_state[key] = ("일본어" not in lang)
+        # 💡 2번 수정: 한국어만 기본으로 체크되도록 변경 (나머지는 해제)
+        st.session_state[key] = ("한국어" in lang)
 
 if 'is_processing' not in st.session_state:
     st.session_state.is_processing = False
@@ -94,6 +94,8 @@ if 'results' not in st.session_state:
     st.session_state.results = {}
 if 'video_title' not in st.session_state:
     st.session_state.video_title = ""
+if 'show_balloons' not in st.session_state:
+    st.session_state.show_balloons = False
 
 # --- 콜백 함수 / コールバック関数 ---
 def select_all():
@@ -117,10 +119,10 @@ def verify_timeline_final(original_srt, translated_srt_text):
         return False, f"SRT 파싱 에러 / SRTパースエラー: {e}"
 
 # --- 번역 및 타임라인 강제 동기화 / 翻訳およびタイムライン同期 ---
-def translate_and_verify(original_text, original_srt, target_lang, progress_bar, status_text):
-    model = genai.GenerativeModel(MODEL_NAME)
+def translate_and_verify(original_text, original_srt, target_lang, selected_model, progress_bar, status_text):
+    model = genai.GenerativeModel(selected_model)
     
-    # 💡 4번 룰 추가: 원본 그대로 출력하는 환각 방지!
+    # 💡 3번 수정: 원문의 느낌과 말투를 최대한 살리도록 프롬프트 정교화
     prompt_base = f"""
     You are an expert subtitle translator. Translate the following SRT file to {target_lang}.
     CRITICAL RULES:
@@ -128,6 +130,7 @@ def translate_and_verify(original_text, original_srt, target_lang, progress_bar,
     2. DO NOT merge, combine, or split lines. Translate line by line.
     3. Output ONLY the raw SRT format. NO markdown tags like ```srt. Just start with '1'.
     4. ABSOLUTELY DO NOT output the original text. You MUST translate the content entirely into {target_lang}.
+    5. Carefully preserve the original tone, nuance, style, and vibe of the speech (e.g., formal/informal politeness, slang, emotional expressions). Make it sound natural while respecting the original context.
     
     Original SRT:
     {original_text}
@@ -202,13 +205,12 @@ is_locked = st.session_state.is_processing
 # 1. 파일 업로드란
 uploaded_file = st.file_uploader("원본 SRT 파일을 올려줘, 주인. / 元のSRTファイルをアップロードしてください。", type=['srt'], disabled=is_locked)
 
-# 💡 업로드 즉시 파일 검증 및 파싱 로직
+# 업로드 즉시 파일 검증 및 파싱 로직
 original_srt = None
 original_content = ""
 
 if uploaded_file:
     raw_bytes = uploaded_file.getvalue()
-    # 3중 인코딩 방어막
     try:
         original_content = raw_bytes.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -224,7 +226,6 @@ if uploaded_file:
             st.error("🚨 자막이 비어있거나 올바른 SRT 형식이 아닙니다. / 字幕が空であるか、正しいSRT形式ではありません。")
             original_srt = None
         else:
-            # 타임라인 논리 검증 (역전 현상 확인)
             timeline_errors = 0
             for i in range(len(original_srt)):
                 if original_srt[i].start >= original_srt[i].end:
@@ -244,6 +245,19 @@ if uploaded_file:
 # 2. 영상 제목 입력란
 video_title = st.text_input("영상 제목을 입력해줘. (파일명에 사용됨) / 動画のタイトルを入力してください。(ファイル名に使用)", value=st.session_state.video_title, disabled=is_locked)
 st.session_state.video_title = video_title
+
+# 💡 5번 수정: 제미나이 모델 선택 기능 추가 (라디오 버튼 배치)
+MODEL_OPTIONS = {
+    "Gemini 3.5 Flash (한국어 번역시 추천)": "gemini-3.5-flash",
+    "Gemini 3.1 Flash-Lite (한국어 외 다국어 번역시 추천)": "gemini-3.1-flash-lite"
+}
+selected_model_label = st.radio(
+    "사용할 제미나이 모델을 선택해줘, 주인. / 使用するGeminiモデルを選択してください。",
+    options=list(MODEL_OPTIONS.keys()),
+    index=0,  # 기본 선택은 3.5 플래시
+    disabled=is_locked
+)
+selected_model = MODEL_OPTIONS[selected_model_label]
 
 st.markdown("---")
 st.subheader("🌐 번역할 언어 선택 / 翻訳する言語の選択")
@@ -275,13 +289,15 @@ if not st.session_state.is_processing:
         else:
             st.session_state.is_processing = True
             st.session_state.results = {}
-            st.rerun()
+            st.session_state.show_balloons = True  # 💡 4번 수정: 작업 완료 시점에만 애니메이션이 나오도록 준비
+            st.author_rerun()
 else:
     if st.button("🛑 작업 중단 / 作業中断", type="primary", use_container_width=True):
         st.session_state.is_processing = False
+        st.session_state.show_balloons = False
         st.warning("작업을 중단했어, 주인. 화면을 갱신합니다. / 作業を中断しました。画面を更新します。")
         time.sleep(1)
-        st.rerun()
+        st.author_rerun()
 
 # --- 실제 번역 처리 루프 / 翻訳処理ループ ---
 if st.session_state.is_processing and uploaded_file and original_srt and video_title.strip():
@@ -301,10 +317,12 @@ if st.session_state.is_processing and uploaded_file and original_srt and video_t
         total_status_text.text(f"📊 전체 진행 상황: {idx+1} / {total_langs} 언어 작업 중 ({clean_lang_name}) \n 全体進行状況: {idx+1} / {total_langs} 言語作業中")
         target_lang_en = LANGUAGES[lang]
         
+        # 💡 5번 수정: 선택된 모델 변수(selected_model) 전달
         translated_srt = translate_and_verify(
             original_content, 
             original_srt, 
             target_lang_en, 
+            selected_model,
             lang_progress_bar, 
             lang_status_text
         )
@@ -317,7 +335,7 @@ if st.session_state.is_processing and uploaded_file and original_srt and video_t
         total_progress_bar.progress((idx + 1) / total_langs)
 
     st.session_state.is_processing = False
-    st.rerun()
+    st.author_rerun()
 
 # --- 최종 검수 및 다운로드 영역 / 最終確認およびダウンロード領域 ---
 if st.session_state.results and not st.session_state.is_processing:
@@ -361,4 +379,7 @@ if st.session_state.results and not st.session_state.is_processing:
             use_container_width=True
         )
 
-    st.balloons()
+    # 💡 4번 수정: 애니메이션 플래그가 True일 때만 한 번 발생시키고 즉시 False로 전환
+    if st.session_state.show_balloons:
+        st.balloons()
+        st.session_state.show_balloons = False
