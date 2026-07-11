@@ -25,11 +25,13 @@ if not st.session_state.authenticated:
     st.subheader("이 앱은 허가된 사용자만 사용할 수 있습니다.")
     st.write("このアプリは許可されたユーザーのみ使用できます。")
     
-    # 💡 1번 수정: 브라우저 자동완성(오토필) 지원을 위해 st.form 사용
+    # 브라우저 자동완성(오토필) 지원을 위해 st.form 사용
     with st.form("login_form", clear_on_submit=False):
         login_user = st.text_input("Username / ID", key="login_user")
         login_pass = st.text_input("Password / パスワード", type="password", key="login_pass")
-        submit_login = st.form_submit_with_button("🔑 로그인 / ログイン", type="primary", use_container_width=True)
+        
+        # ⚠️ 이 부분의 스펠링을 st.form_submit_button 으로 수정 완료!
+        submit_login = st.form_submit_button("🔑 로그인 / ログイン", type="primary", use_container_width=True)
         
         if submit_login:
             if login_user == VALID_USERNAME and login_pass == VALID_PASSWORD:
