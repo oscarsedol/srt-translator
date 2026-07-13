@@ -1,5 +1,5 @@
 import streamlit as st
-# 💡 기존 import google.generativeai 대신 최신 google-genai 라이브러리 사용
+# 💡 최신 공식 통합 라이브러리로 변경 완료
 from google import genai 
 import os
 import pysrt
@@ -46,13 +46,15 @@ api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
 
 if api_key:
     try:
-        # 💡 핵심: vertexai=True 옵션을 주어야 구글 클라우드의 46만 원 크레딧에서 차감돼!
-        client = genai.Client(api_key=api_key, vertexai=True)
+        # 💡 핵심: 구글 클라우드 콘솔에서 발급한 API 키를 넣으면 알아서 해당 프로젝트로 과금이 연결돼!
+        client = genai.Client(api_key=api_key)
         st.success("구글 클라우드 크레딧 기반의 Gemini 엔진이 준비되었어, 주인!")
     except Exception as e:
         st.error(f"클라이언트 초기화 중 에러가 발생했어: {e}")
+        st.stop()
 else:
     st.error("앗, .env 파일이나 Secrets에 GEMINI_API_KEY가 없어. 확인해줘, 주인.")
+    st.stop()
 
 # --- 번역 가능 언어 목록 (30개 언어 가나다순 정렬) / 翻訳可能言語リスト ---
 LANGUAGES = {
@@ -67,8 +69,8 @@ LANGUAGES = {
     "스페인어 / スペイン語": "Spanish",
     "아랍어 / アラビア語": "Arabic",
     "영어 / 英語": "English",
-    "우즈베크어 / ウズベк語": "Uzbek",
-    "우크라이나어 / ウ크라이나語": "Ukrainian",
+    "우즈베크어 / ウズベク語": "Uzbek",
+    "우크라이나어 / ウクライナ語": "Ukrainian",
     "이탈리아어 / イタリア語": "Italian",
     "인도네시아어 / インドネシア語": "Indonesian",
     "일본어 / 日本語": "Japanese",
@@ -78,7 +80,7 @@ LANGUAGES = {
     "카자흐어 / カザフ語": "Kazakh",
     "태국어 / タイ語": "Thai",
     "튀르키예어 / トルコ語": "Turkish",
-    "페르시아어 / 페르시아語": "Persian",
+    "페르시아어 / ペルシア語": "Persian",
     "포르투갈어 / ポルトガル語": "Portuguese",
     "폴란드어 / ポーランド語": "Polish",
     "프랑스어 / フランス語": "French",
@@ -88,7 +90,7 @@ LANGUAGES = {
     "힌디어 / ヒンディー語": "Hindi"
 }
 
-# --- 스트림릿 세션 상태 초기화 / セッション状態の初期화 ---
+# --- 스트림릿 세션 상태 초기화 / セッション状態の初期化 ---
 for lang in LANGUAGES.keys():
     key = f"chk_{lang}"
     if key not in st.session_state:
@@ -99,7 +101,7 @@ if 'is_processing' not in st.session_state:
 if 'results' not in st.session_state:
     st.session_state.results = {}
 if 'failed_langs' not in st.session_state:
-    st.session_state.failed_langs = [] # 💡 실패 원인을 담을 저장소 복구!
+    st.session_state.failed_langs = []
 if 'video_title' not in st.session_state:
     st.session_state.video_title = ""
 if 'show_balloons' not in st.session_state:
@@ -128,8 +130,6 @@ def verify_timeline_final(original_srt, translated_srt_text):
 
 # --- 번역 및 타임라인 강제 동기화 / 翻訳およびタイムライン同期 ---
 def translate_and_verify(original_text, original_srt, target_lang, selected_model, progress_bar, status_text):
-    model = genai.GenerativeModel(selected_model)
-    
     prompt_base = f"""
     You are an expert subtitle translator. Translate the following SRT file to {target_lang}.
     CRITICAL RULES:
@@ -144,7 +144,7 @@ def translate_and_verify(original_text, original_srt, target_lang, selected_mode
     """
     
     attempt = 1
-    last_error = "" # 💡 핵심 추가: 구글 API가 뱉어내는 진짜 에러 메시지 기록용
+    last_error = ""
     
     while attempt <= 3:
         if not st.session_state.is_processing:
@@ -154,7 +154,12 @@ def translate_and_verify(original_text, original_srt, target_lang, selected_mode
         progress_bar.progress(int(attempt * (100 / 3)))
         
         try:
-            response = model.generate_content(prompt_base)
+            # 💡 최신 문법: client.models.generate_content 사용 (구형 GenerativeModel 객체 생성 없음)
+            response = client.models.generate_content(
+                model=selected_model,
+                contents=prompt_base
+            )
+            
             translated_text = response.text.replace("```srt", "").replace("```", "").strip()
             
             try:
@@ -183,12 +188,14 @@ def translate_and_verify(original_text, original_srt, target_lang, selected_mode
             
             status_text.text(f"[{target_lang}] 완료! / 完了! ({attempt}회 만에 성공 / {attempt}回目で成功)")
             progress_bar.progress(100)
-            return "\n\n".join(final_output), None # 💡 성공 시 에러는 None
+            return "\n\n".join(final_output), None
 
         except Exception as e:
             err_msg = str(e)
-            last_error = err_msg  # 💡 실패한 이유(에러 로그)를 보관
-            if "429" in err_msg or "Quota" in err_msg or "quota" in err_msg:
+            last_error = err_msg  
+            
+            # 💡 구글 API 요금제 한도나 트래픽 에러 처리 로직도 유지
+            if "429" in err_msg or "Quota" in err_msg or "quota" in err_msg or "exhausted" in err_msg.lower():
                 match = re.search(r"retry in ([\d\.]+)\s*s", err_msg)
                 wait_time = int(float(match.group(1))) + 2 if match else 25
                 status_text.text(f"⚠️ [API 한도 / API制限] {wait_time}초 대기 후 재시도... / {wait_time}秒待機後、再試行...")
@@ -202,7 +209,7 @@ def translate_and_verify(original_text, original_srt, target_lang, selected_mode
             
     status_text.text(f"[{target_lang}] 3회 시도 실패. 건너뜁니다. / 3回の試行失敗。スキップします。")
     progress_bar.progress(100)
-    return None, f"오류 원인: {last_error}" # 💡 번역본 대신 왜 실패했는지 원인을 반환!
+    return None, f"오류 원인: {last_error}"
 
 # --- UI 레이아웃 구성 / UIレイアウト構成 ---
 st.set_page_config(page_title="SRT 다국어 번역기 / SRT多言語翻訳機", page_icon="🌐", layout="centered")
@@ -248,7 +255,7 @@ if uploaded_file:
                 st.warning(f"⚠️ 원본 자막의 타임라인에 이상한 부분(시간 역전 등)이 {timeline_errors}곳 발견됐어. 번역은 진행되지만 결과물을 확인해줘.")
             else:
                 st.success(f"✅ 검증 완료! 타임라인에 문제가 없으며, 총 **{len(original_srt)}**줄의 자막이 확인됐어.")
-                # 파일 증발 버그 방지용 세션 금고 캐싱 백업
+                
                 st.session_state.cached_srt = original_srt
                 st.session_state.cached_content = original_content
                 
@@ -260,6 +267,7 @@ if uploaded_file:
 video_title = st.text_input("영상 제목을 입력해줘. (파일명에 사용됨) / 動画のタイトルを入力してください。(ファイル名に使用)", value=st.session_state.video_title, disabled=is_locked)
 st.session_state.video_title = video_title
 
+# 💡 모델 이름 최신화 (원하는 모델명으로 언제든 수정 가능)
 MODEL_OPTIONS = {
     "Gemini 3.5 Flash (한국어 번역시 추천)": "gemini-3.5-flash",
     "Gemini 3.1 Flash-Lite (한국어 외 다국어 번역시 추천)": "gemini-3.1-flash-lite"
@@ -302,7 +310,7 @@ if not st.session_state.is_processing:
         else:
             st.session_state.is_processing = True
             st.session_state.results = {}
-            st.session_state.failed_langs = [] # 💡 시작할 때 이전 에러 기록 청소!
+            st.session_state.failed_langs = [] 
             st.session_state.show_balloons = True  
             st.rerun()  
 else:
@@ -331,7 +339,6 @@ if st.session_state.is_processing and st.session_state.get("cached_srt") and vid
         total_status_text.text(f"📊 전체 진행 상황: {idx+1} / {total_langs} 언어 작업 중 ({clean_lang_name}) \n 全体進行状況: {idx+1} / {total_langs} 言語作業中")
         target_lang_en = LANGUAGES[lang]
         
-        # 💡 [핵심 교정] 실패 시 반환되는 'error_reason'을 변수로 함께 받습니다.
         translated_srt, error_reason = translate_and_verify(
             st.session_state.cached_content, 
             st.session_state.cached_srt, 
@@ -348,7 +355,6 @@ if st.session_state.is_processing and st.session_state.get("cached_srt") and vid
             else:
                 st.session_state.failed_langs.append(f"{clean_lang_name} (검증 실패: {msg})")
         else:
-            # 💡 번역이 3회 실패했을 경우, 그 사유를 명확히 기록해둡니다.
             st.session_state.failed_langs.append(f"{clean_lang_name} - {error_reason}")
             
         total_progress_bar.progress((idx + 1) / total_langs)
@@ -357,12 +363,10 @@ if st.session_state.is_processing and st.session_state.get("cached_srt") and vid
     st.rerun()  
 
 # --- 최종 검수 및 다운로드 영역 / 最終確認およびダウンロード領域 ---
-# 💡 [핵심 교정] 성공한 결과물이 없더라도(results가 0개여도), 에러(failed_langs)가 있다면 무조건 결과창을 띄웁니다.
 if (st.session_state.results or st.session_state.failed_langs) and not st.session_state.is_processing:
     st.markdown("---")
     st.subheader("🎉 작업 완료 보고서 / 作業完了レポート")
     
-    # 💡 실패한 언어가 있다면 구글 API의 에러 원인과 함께 붉은 경고창을 그립니다.
     if st.session_state.failed_langs:
         st.error("🚨 **아래 언어는 작업 중 오류가 발생하여 건너뛰었습니다. 원인을 확인해 주세요:**\n\n" + "\n".join([f"- {lang}" for lang in st.session_state.failed_langs]))
     
