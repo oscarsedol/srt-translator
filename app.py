@@ -21,7 +21,7 @@ if "authenticated" not in st.session_state:
 
 if not st.session_state.authenticated:
     st.set_page_config(page_title="🔒 로그인 / ログイン", page_icon="🔐", layout="centered")
-    st.title("🔐 시스템 접근 제한 / アクセ스制限")
+    st.title("🔐 시스템 접근 제한 / アクセス制限")
     st.subheader("이 앱은 허가된 사용자만 사용할 수 있습니다.")
     st.write("このアプリは許可されたユーザーのみ使用できます。")
     
@@ -71,7 +71,7 @@ LANGUAGES = {
     "카자흐어 / カザフ語": "Kazakh",
     "태국어 / タイ語": "Thai",
     "튀르키예어 / トルコ語": "Turkish",
-    "페르시아어 / ペルシア語": "Persian",
+    "페르시아어 / 페르시아語": "Persian",
     "포르투갈어 / ポルトガル語": "Portuguese",
     "폴란드어 / ポーランド語": "Polish",
     "프랑스어 / フランス語": "French",
@@ -91,6 +91,8 @@ if 'is_processing' not in st.session_state:
     st.session_state.is_processing = False
 if 'results' not in st.session_state:
     st.session_state.results = {}
+if 'failed_langs' not in st.session_state:
+    st.session_state.failed_langs = [] # 💡 실패 원인을 담을 저장소 복구!
 if 'video_title' not in st.session_state:
     st.session_state.video_title = ""
 if 'show_balloons' not in st.session_state:
@@ -135,9 +137,11 @@ def translate_and_verify(original_text, original_srt, target_lang, selected_mode
     """
     
     attempt = 1
+    last_error = "" # 💡 핵심 추가: 구글 API가 뱉어내는 진짜 에러 메시지 기록용
+    
     while attempt <= 3:
         if not st.session_state.is_processing:
-            return None
+            return None, "사용자 작업 중단"
             
         status_text.text(f"[{target_lang}] 번역 및 무결성 확보 중... / 翻訳および整合性確認中... ({attempt}/3)")
         progress_bar.progress(int(attempt * (100 / 3)))
@@ -172,16 +176,17 @@ def translate_and_verify(original_text, original_srt, target_lang, selected_mode
             
             status_text.text(f"[{target_lang}] 완료! / 完了! ({attempt}회 만에 성공 / {attempt}回目で成功)")
             progress_bar.progress(100)
-            return "\n\n".join(final_output)
+            return "\n\n".join(final_output), None # 💡 성공 시 에러는 None
 
         except Exception as e:
             err_msg = str(e)
+            last_error = err_msg  # 💡 실패한 이유(에러 로그)를 보관
             if "429" in err_msg or "Quota" in err_msg or "quota" in err_msg:
                 match = re.search(r"retry in ([\d\.]+)\s*s", err_msg)
                 wait_time = int(float(match.group(1))) + 2 if match else 25
                 status_text.text(f"⚠️ [API 한도 / API制限] {wait_time}초 대기 후 재시도... / {wait_time}秒待機後、再試行...")
                 time.sleep(wait_time)
-                attempt += 1  # 💡 할당량 초과 에러 시 무한루프 탈출용 시도횟수 증가 추가
+                attempt += 1  
                 continue
             else:
                 status_text.text(f"[{target_lang}] 에러 발생 / エラー発生: {e}")
@@ -190,7 +195,7 @@ def translate_and_verify(original_text, original_srt, target_lang, selected_mode
             
     status_text.text(f"[{target_lang}] 3회 시도 실패. 건너뜁니다. / 3回の試行失敗。スキップします。")
     progress_bar.progress(100)
-    return None
+    return None, f"오류 원인: {last_error}" # 💡 번역본 대신 왜 실패했는지 원인을 반환!
 
 # --- UI 레이아웃 구성 / UIレイアウト構成 ---
 st.set_page_config(page_title="SRT 다국어 번역기 / SRT多言語翻訳機", page_icon="🌐", layout="centered")
@@ -236,7 +241,7 @@ if uploaded_file:
                 st.warning(f"⚠️ 원본 자막의 타임라인에 이상한 부분(시간 역전 등)이 {timeline_errors}곳 발견됐어. 번역은 진행되지만 결과물을 확인해줘.")
             else:
                 st.success(f"✅ 검증 완료! 타임라인에 문제가 없으며, 총 **{len(original_srt)}**줄의 자막이 확인됐어.")
-                # 💡 파일 증발 버그 방지용 세션 금고 캐싱 백업
+                # 파일 증발 버그 방지용 세션 금고 캐싱 백업
                 st.session_state.cached_srt = original_srt
                 st.session_state.cached_content = original_content
                 
@@ -290,6 +295,7 @@ if not st.session_state.is_processing:
         else:
             st.session_state.is_processing = True
             st.session_state.results = {}
+            st.session_state.failed_langs = [] # 💡 시작할 때 이전 에러 기록 청소!
             st.session_state.show_balloons = True  
             st.rerun()  
 else:
@@ -318,8 +324,8 @@ if st.session_state.is_processing and st.session_state.get("cached_srt") and vid
         total_status_text.text(f"📊 전체 진행 상황: {idx+1} / {total_langs} 언어 작업 중 ({clean_lang_name}) \n 全体進行状況: {idx+1} / {total_langs} 言語作業中")
         target_lang_en = LANGUAGES[lang]
         
-        # 💡 [교정 완료] 함수를 닫는 괄호와 인자 전달의 정렬 버그를 완벽하게 고쳤어!
-        translated_srt = translate_and_verify(
+        # 💡 [핵심 교정] 실패 시 반환되는 'error_reason'을 변수로 함께 받습니다.
+        translated_srt, error_reason = translate_and_verify(
             st.session_state.cached_content, 
             st.session_state.cached_srt, 
             target_lang_en, 
@@ -332,6 +338,11 @@ if st.session_state.is_processing and st.session_state.get("cached_srt") and vid
             is_valid, msg = verify_timeline_final(st.session_state.cached_srt, translated_srt)
             if is_valid:
                 st.session_state.results[clean_lang_name] = translated_srt
+            else:
+                st.session_state.failed_langs.append(f"{clean_lang_name} (검증 실패: {msg})")
+        else:
+            # 💡 번역이 3회 실패했을 경우, 그 사유를 명확히 기록해둡니다.
+            st.session_state.failed_langs.append(f"{clean_lang_name} - {error_reason}")
             
         total_progress_bar.progress((idx + 1) / total_langs)
 
@@ -339,47 +350,53 @@ if st.session_state.is_processing and st.session_state.get("cached_srt") and vid
     st.rerun()  
 
 # --- 최종 검수 및 다운로드 영역 / 最終確認およびダウンロード領域 ---
-if st.session_state.results and not st.session_state.is_processing:
+# 💡 [핵심 교정] 성공한 결과물이 없더라도(results가 0개여도), 에러(failed_langs)가 있다면 무조건 결과창을 띄웁니다.
+if (st.session_state.results or st.session_state.failed_langs) and not st.session_state.is_processing:
     st.markdown("---")
-    st.subheader("🎉 작업 완료 및 다운로드 / 作業完了およびダウンロード")
+    st.subheader("🎉 작업 완료 보고서 / 作業完了レポート")
+    
+    # 💡 실패한 언어가 있다면 구글 API의 에러 원인과 함께 붉은 경고창을 그립니다.
+    if st.session_state.failed_langs:
+        st.error("🚨 **아래 언어는 작업 중 오류가 발생하여 건너뛰었습니다. 원인을 확인해 주세요:**\n\n" + "\n".join([f"- {lang}" for lang in st.session_state.failed_langs]))
     
     results = st.session_state.results
     title = st.session_state.video_title.strip()
     
-    st.success(f"총 {len(results)}개 언어의 자막이 완벽하게 준비됐어! / 計{len(results)}言語の字幕が完璧に準備されました！")
-    
-    if len(results) == 1:
-        lang_name = list(results.keys())[0]
-        srt_content = list(results.values())[0]
-        file_name = f"{title}_{lang_name}.srt"
+    if results:
+        st.success(f"총 {len(results)}개 언어의 자막이 완벽하게 준비됐어! / 計{len(results)}言語の字幕が完璧に準備されました！")
         
-        st.download_button(
-            label=f"📥 {file_name} 다운로드 / ダウンロード",
-            data=srt_content.encode("utf-8-sig"), 
-            file_name=file_name,
-            mime="text/plain",
-            type="primary",
-            use_container_width=True
-        )
-    else:
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            for lang_name, srt_content in results.items():
-                file_name = f"{title}_{lang_name}.srt"
-                zip_file.writestr(file_name, srt_content.encode("utf-8-sig"))
-        
-        zip_buffer.seek(0)
-        zip_filename = f"{title}_자막들.zip"
-        
-        st.download_button(
-            label=f"📦 {zip_filename} 전체 다운로드 / 一括ダウンロード",
-            data=zip_buffer,
-            file_name=zip_filename,
-            mime="application/zip",
-            type="primary",
-            use_container_width=True
-        )
+        if len(results) == 1:
+            lang_name = list(results.keys())[0]
+            srt_content = list(results.values())[0]
+            file_name = f"{title}_{lang_name}.srt"
+            
+            st.download_button(
+                label=f"📥 {file_name} 다운로드 / ダウンロード",
+                data=srt_content.encode("utf-8-sig"), 
+                file_name=file_name,
+                mime="text/plain",
+                type="primary",
+                use_container_width=True
+            )
+        else:
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                for lang_name, srt_content in results.items():
+                    file_name = f"{title}_{lang_name}.srt"
+                    zip_file.writestr(file_name, srt_content.encode("utf-8-sig"))
+            
+            zip_buffer.seek(0)
+            zip_filename = f"{title}_자막들.zip"
+            
+            st.download_button(
+                label=f"📦 {zip_filename} 전체 다운로드 / 一括ダウンロード",
+                data=zip_buffer,
+                file_name=zip_filename,
+                mime="application/zip",
+                type="primary",
+                use_container_width=True
+            )
 
-    if st.session_state.show_balloons:
+    if st.session_state.show_balloons and results:
         st.balloons()
         st.session_state.show_balloons = False
