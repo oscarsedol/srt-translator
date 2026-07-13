@@ -47,7 +47,8 @@ api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
 if api_key:
     try:
         # 💡 핵심: 구글 클라우드 콘솔에서 발급한 API 키를 넣으면 알아서 해당 프로젝트로 과금이 연결돼!
-        client = genai.Client(api_key=api_key)
+        # 💡 vertexai=True를 넣어줘야 최신 라이브러리가 구글 클라우드(Vertex AI) 서버로 접속해!
+        client = genai.Client(api_key=api_key, vertexai=True)
         st.success("구글 클라우드 크레딧 기반의 Gemini 엔진이 준비되었어, 주인!")
     except Exception as e:
         st.error(f"클라이언트 초기화 중 에러가 발생했어: {e}")
