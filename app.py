@@ -1,5 +1,6 @@
 import streamlit as st
-import google.generativeai as genai
+# 💡 기존 import google.generativeai 대신 최신 google-genai 라이브러리 사용
+from google import genai 
 import os
 import pysrt
 import time
@@ -42,8 +43,14 @@ if not st.session_state.authenticated:
 # --- 로그인 성공 시 아래의 본 프로그램 실행 ---
 
 api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
+
 if api_key:
-    genai.configure(api_key=api_key)
+    try:
+        # 💡 핵심: vertexai=True 옵션을 주어야 구글 클라우드의 46만 원 크레딧에서 차감돼!
+        client = genai.Client(api_key=api_key, vertexai=True)
+        st.success("구글 클라우드 크레딧 기반의 Gemini 엔진이 준비되었어, 주인!")
+    except Exception as e:
+        st.error(f"클라이언트 초기화 중 에러가 발생했어: {e}")
 else:
     st.error("앗, .env 파일이나 Secrets에 GEMINI_API_KEY가 없어. 확인해줘, 주인.")
 
