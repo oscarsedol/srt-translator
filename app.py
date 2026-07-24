@@ -270,8 +270,8 @@ st.session_state.video_title = video_title
 
 # 💡 모델 이름 최신화 (원하는 모델명으로 언제든 수정 가능)
 MODEL_OPTIONS = {
-    "Gemini 3.5 Flash (한국어 번역시 추천)": "gemini-3.5-flash",
-    "Gemini 3.1 Flash-Lite (한국어 외 다국어 번역시 추천)": "gemini-3.1-flash-lite"
+    "Gemini Flash latest model (한국어 번역시 추천)": "gemini-flash-latest",
+    "Gemini Flash-Lite latest model (한국어 외 다국어 번역시 추천)": "gemini-flash-lite-latest"
 }
 selected_model_label = st.radio(
     "사용할 제미나이 모델을 선택해줘, 주인. / 使用するGeminiモデルを選択してください。",
